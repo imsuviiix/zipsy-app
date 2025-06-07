@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 import re
 import io
 import zipfile
@@ -64,6 +63,17 @@ def fix_html_structure(html_content):
     
     return str(soup)
 
+def mask_personal_info(text):
+    """개인정보 마스킹: 00을 ◯◯로 변경"""
+    # 한글 성씨 + 00 패턴을 찾아서 ◯◯로 변경
+    # 예: 김00, 이00, 박00 등
+    masked_text = re.sub(r'([가-힣])00', r'\1◯◯', text)
+    
+    # 개인(성00) 패턴도 처리
+    masked_text = re.sub(r'개인\(([가-힣])00\)', r'개인(\1◯◯)', masked_text)
+    
+    return masked_text
+
 def parse_data(html_content):
     """HTML에서 데이터 추출 및 파싱"""
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -107,6 +117,12 @@ def parse_data(html_content):
         time_loc = row[4] if row[4] else "시간장소불명"
         people = row[5] if row[5] else "인원불명"
         region_text = row[7] if row[7] else "관할불명"
+        
+        # 개인정보 마스킹 적용
+        organizer = mask_personal_info(organizer)
+        event = mask_personal_info(event)
+        time_loc = mask_personal_info(time_loc)
+        region_text = mask_personal_info(region_text)
         
         # 시간과 장소 분리
         if "~" in time_loc:
@@ -256,4 +272,7 @@ with st.expander("사용법"):
     - 마영관: 마포, 서대문, 은평, 서부, 영등포, 구로, 강서, 양천, 관악, 방배, 금천, 동작
     - 강광: 강남, 서초, 수서, 송파, 성동, 강동, 광진
     - 중종: 나머지 지역
+    
+    **개인정보 보호:**
+    - 개인명의 '00' 표기는 자동으로 '◯◯'로 마스킹됩니다
     """)
