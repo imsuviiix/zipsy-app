@@ -118,11 +118,8 @@ def parse_data(html_content):
         people = row[5] if row[5] else "인원불명"
         region_text = row[7] if row[7] else "관할불명"
         
-        # 개인정보 마스킹 적용
+        # 주최자에만 개인정보 마스킹 적용
         organizer = mask_personal_info(organizer)
-        event = mask_personal_info(event)
-        time_loc = mask_personal_info(time_loc)
-        region_text = mask_personal_info(region_text)
         
         # 시간과 장소 분리
         if "~" in time_loc:
