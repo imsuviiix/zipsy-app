@@ -91,6 +91,9 @@ def parse_data(html_content):
         for row in rows:
             cols = [col.get_text(strip=True) for col in row.find_all("td")]
             if len(cols) >= 6:
+                # 첫 번째 컬럼(번호) 제거하고 실제 데이터만 사용
+                if cols[0].isdigit() or cols[0].startswith('-'):
+                    cols = cols[1:]  # 번호 컬럼 제거
                 all_rows.append(cols)
     
     # 데이터 정리
