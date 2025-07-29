@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import re
 import io
 import zipfile
-
+import os
 # 페이지 설정
 st.set_page_config(page_title="집회시위 정보 추출기", page_icon="📋")
 
@@ -15,8 +15,9 @@ st.write("PDF 파일을 업로드하면 집회 및 시위 정보를 자동으로
 try:
     API_KEY = st.secrets["API_KEY"]
 except:
-    st.error("API 키가 설정되지 않았습니다. 관리자에게 문의하세요.")
-    st.stop()
+    API_KEY = os.getenv("UPSTAGE_API_KEY")
+    # st.error("API 키가 설정되지 않았습니다. 관리자에게 문의하세요.")
+    # st.stop()
 
 def process_pdf(pdf_file):
     """PDF 파일을 처리하여 HTML로 변환"""
@@ -24,7 +25,7 @@ def process_pdf(pdf_file):
     headers = {"Authorization": f"Bearer {API_KEY}"}
     files = {"document": pdf_file}
     data = {
-        "model": "document-parse",
+        "model": "document-parse-250508",
         "ocr": "force",
         "coordinates": True,
         "output_formats": '["html"]',
@@ -91,19 +92,9 @@ def parse_data(html_content):
         for row in rows:
             cols = [col.get_text(strip=True) for col in row.find_all("td")]
             if len(cols) >= 6:
-                # 첫 번째 컬럼이 번호인지 확인하고 제거
-                if cols and (cols[0].isdigit() or 
-                           cols[0].startswith('-') or 
-                           cols[0].endswith('-') or
-                           re.match(r'^-?\d+$', cols[0]) or
-                           cols[0] == '' or
-                           re.match(r'^[가-힣]*\s*\d+$', cols[0])):  # "제 12", "경 13" 등 패턴
+                # 첫 번째 컬럼(번호) 제거하고 실제 데이터만 사용
+                if cols[0].isdigit() or cols[0].startswith('-'):
                     cols = cols[1:]  # 번호 컬럼 제거
-                
-                # 두 번째 컬럼도 번호가 포함된 경우 처리 (예: "25 홍대상인회")
-                if len(cols) > 0 and re.match(r'^\d+\s+', cols[0]):
-                    cols[0] = re.sub(r'^\d+\s+', '', cols[0])
-                
                 all_rows.append(cols)
     
     # 데이터 정리
@@ -125,26 +116,70 @@ def parse_data(html_content):
     # 포맷 변환
     formatted_entries = []
     for row in cleaned_rows:
-        organizer = row[2] if row[2] else "주최자불명"
-        event = row[3].replace(" ", "") if row[3] else "행사명불명"
-        time_loc = row[4] if row[4] else "시간장소불명"
-        people = row[5] if row[5] else "인원불명"
-        region_text = row[7] if row[7] else "관할불명"
+        # 컬럼 수에 따라 다른 매핑 적용
+        if len(row) == 5:
+            # 5개 컬럼: [주최자, 시간장소, 인원, 행사유형, 관할]
+            organizer = row[0] if row[0] else "주최자불명"
+            time_loc = row[1] if row[1] else "시간장소불명"
+            people = row[2] if row[2] else "인원불명"
+            event_type = row[3] if row[3] else "행사유형불명"
+            region_text = row[4] if row[4] else "관할불명"
+            event = organizer  # 주최자를 행사명으로 사용
+        elif len(row) == 6:
+            # 6개 컬럼: [주최자, 행사명, 시간장소, 인원, 행사유형, 관할]
+            organizer = row[0] if row[0] else "주최자불명"
+            event = row[1].replace(" ", "") if row[1] else "행사명불명"
+            time_loc = row[2] if row[2] else "시간장소불명"
+            people = row[3] if row[3] else "인원불명"
+            event_type = row[4] if row[4] else "행사유형불명"
+            region_text = row[5] if row[5] else "관할불명"
+        elif len(row) == 7:
+            # 7개 컬럼: [주최자, 행사명, 시간장소, 인원, 행사유형, 관할, 추가정보]
+            organizer = row[0] if row[0] else "주최자불명"
+            event = row[1].replace(" ", "") if row[1] else "행사명불명"
+            time_loc = row[2] if row[2] else "시간장소불명"
+            people = row[3] if row[3] else "인원불명"
+            event_type = row[4] if row[4] else "행사유형불명"
+            region_text = row[5] if row[5] else "관할불명"
+        else:
+            # 8개 컬럼: [주최자, 행사명, 시간장소, 인원, 행사유형, 관할, 추가정보, 추가정보]
+            organizer = row[2] if row[2] else "주최자불명"
+            event = row[3].replace(" ", "") if row[3] else "행사명불명"
+            time_loc = row[4] if row[4] else "시간장소불명"
+            people = row[5] if row[5] else "인원불명"
+            event_type = row[6] if row[6] else "행사유형불명"
+            region_text = row[7] if row[7] else "관할불명"
         
         # 주최자에만 개인정보 마스킹 적용
         organizer = mask_personal_info(organizer)
         
-        # 주최자에서 번호 제거 (예: "25 홍대상인회" -> "홍대상인회")
-        organizer = re.sub(r'^-?\d+\s*', '', organizer).strip()
-        
         # 시간과 장소 분리
         if "~" in time_loc:
-            time_match = re.search(r'(\d{1,2}:\d{2}~\d{1,2}:\d{2})', time_loc)
-            if time_match:
-                time = time_match.group(1)
-                location = time_loc.replace(time, "").strip()
-                location = re.sub(r'<[^>]*>', '', location).strip()
-            else:
+            # 다양한 시간 패턴 매칭
+            time_patterns = [
+                r'(\d{1,2}:\d{2}~\d{1,2}:\d{2})',  # 17:00~22:00
+                r'(\d{1,2}:\d{2}∼\d{1,2}:\d{2})',  # 17:00∼22:00
+                r'(\d{1,2}:\d{2}~未定)',  # 18:30~未定
+                r'(\d{1,2}:\d{2}∼未定)',  # 18:30∼未定
+                r'(\d{1,2}:\d{2}~\s*翌\)\d{1,2}:\d{2})',  # 23:00~ 翌)03:00
+                r'(\d{1,2}:\d{2}∼\s*翌\)\d{1,2}:\d{2})',  # 23:00∼ 翌)03:00
+                r'(\d{1,2}:\d{2}~\d{1,2}:\d{2}~\d{1,2}:\d{2})',  # 복합 시간
+                r'(\d{1,2}:\d{2}∼\d{1,2}:\d{2}∼\d{1,2}:\d{2})',  # 복합 시간
+                r'(\d{1,2}:\d{2}~\d{1,2}:\d{2}\s+\d{1,2}:\d{2}~\d{1,2}:\d{2})',  # 여러 시간대
+                r'(\d{1,2}:\d{2}∼\d{1,2}:\d{2}\s+\d{1,2}:\d{2}∼\d{1,2}:\d{2})',  # 여러 시간대
+            ]
+            
+            time_found = False
+            for pattern in time_patterns:
+                time_match = re.search(pattern, time_loc)
+                if time_match:
+                    time = time_match.group(1)
+                    location = time_loc.replace(time, "").strip()
+                    location = re.sub(r'<[^>]*>', '', location).strip()
+                    time_found = True
+                    break
+            
+            if not time_found:
                 time = "시간정보없음"
                 location = re.sub(r'<[^>]*>', '', time_loc).strip()
         else:
