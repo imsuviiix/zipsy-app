@@ -91,9 +91,19 @@ def parse_data(html_content):
         for row in rows:
             cols = [col.get_text(strip=True) for col in row.find_all("td")]
             if len(cols) >= 6:
-                # 첫 번째 컬럼(번호) 제거하고 실제 데이터만 사용
-                if cols[0].isdigit() or cols[0].startswith('-'):
+                # 첫 번째 컬럼이 번호인지 확인하고 제거
+                if cols and (cols[0].isdigit() or 
+                           cols[0].startswith('-') or 
+                           cols[0].endswith('-') or
+                           re.match(r'^-?\d+$', cols[0]) or
+                           cols[0] == '' or
+                           re.match(r'^[가-힣]*\s*\d+$', cols[0])):  # "제 12", "경 13" 등 패턴
                     cols = cols[1:]  # 번호 컬럼 제거
+                
+                # 두 번째 컬럼도 번호가 포함된 경우 처리 (예: "25 홍대상인회")
+                if len(cols) > 0 and re.match(r'^\d+\s+', cols[0]):
+                    cols[0] = re.sub(r'^\d+\s+', '', cols[0])
+                
                 all_rows.append(cols)
     
     # 데이터 정리
@@ -123,6 +133,9 @@ def parse_data(html_content):
         
         # 주최자에만 개인정보 마스킹 적용
         organizer = mask_personal_info(organizer)
+        
+        # 주최자에서 번호 제거 (예: "25 홍대상인회" -> "홍대상인회")
+        organizer = re.sub(r'^-?\d+\s*', '', organizer).strip()
         
         # 시간과 장소 분리
         if "~" in time_loc:
