@@ -25,7 +25,7 @@ def process_pdf(pdf_file):
     headers = {"Authorization": f"Bearer {API_KEY}"}
     files = {"document": pdf_file}
     data = {
-        "model": "document-parse-250508",
+        "model": "document-parse",
         "ocr": "force",
         "coordinates": True,
         "output_formats": '["html"]',
