@@ -5,6 +5,8 @@ import re
 import io
 import zipfile
 import os
+from datetime import date
+
 # 페이지 설정
 st.set_page_config(page_title="집회시위 정보 추출기", page_icon="📋")
 
@@ -18,6 +20,165 @@ except:
     API_KEY = os.getenv("UPSTAGE_API_KEY")
     # st.error("API 키가 설정되지 않았습니다. 관리자에게 문의하세요.")
     # st.stop()
+
+
+def _extract_numbers_from_json(obj, key_hints):
+    """중첩 JSON에서 key_hints와 이름이 유사한 숫자 필드를 찾아 합산"""
+    values = []
+
+    def walk(item):
+        if isinstance(item, dict):
+            for k, v in item.items():
+                lk = str(k).lower()
+                if any(hint in lk for hint in key_hints):
+                    if isinstance(v, (int, float)):
+                        values.append(float(v))
+                walk(v)
+        elif isinstance(item, list):
+            for v in item:
+                walk(v)
+
+    walk(obj)
+    return sum(values) if values else None
+
+
+@st.cache_data(ttl=600)
+def get_monthly_usage_from_upstage(api_key):
+    """Upstage 사용량/비용 API 조회(가능한 엔드포인트 순차 시도)"""
+    if not api_key:
+        return {"ok": False, "error": "API 키가 없습니다."}
+
+    today = date.today()
+    month_start = today.replace(day=1)
+
+    start_date = month_start.isoformat()
+    end_date = today.isoformat()
+
+    usage_api_url = os.getenv("UPSTAGE_USAGE_API_URL")
+    candidate_endpoints = [
+        usage_api_url,
+        "https://api.upstage.ai/v1/billing/usage",
+        "https://api.upstage.ai/v1/usage",
+    ]
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+
+    last_error = "지원되는 사용량 API를 찾지 못했습니다."
+
+    for endpoint in [e for e in candidate_endpoints if e]:
+        try:
+            res = requests.get(
+                endpoint,
+                headers=headers,
+                params={"start_date": start_date, "end_date": end_date},
+                timeout=12,
+            )
+
+            if res.status_code >= 400:
+                last_error = f"{endpoint} 응답 코드 {res.status_code}"
+                continue
+
+            data = res.json()
+
+            # 응답 구조가 명확하지 않아 유사 키를 폭넓게 탐색
+            total_tokens = _extract_numbers_from_json(
+                data,
+                ["total_tokens", "tokens", "token"],
+            )
+            total_cost = _extract_numbers_from_json(
+                data,
+                ["total_cost", "cost", "amount", "usd", "krw", "price"],
+            )
+
+            if total_tokens is None and total_cost is None:
+                # 데이터는 받았지만 스키마가 다르면 raw 포함해서 반환
+                return {
+                    "ok": True,
+                    "source": endpoint,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "total_tokens": None,
+                    "total_cost": None,
+                    "raw": data,
+                }
+
+            return {
+                "ok": True,
+                "source": endpoint,
+                "start_date": start_date,
+                "end_date": end_date,
+                "total_tokens": int(total_tokens) if total_tokens is not None else None,
+                "total_cost": float(total_cost) if total_cost is not None else None,
+            }
+        except Exception as e:
+            last_error = f"{endpoint} 조회 실패: {str(e)}"
+
+    return {"ok": False, "error": last_error}
+
+
+def extract_usage_from_pdf_response(response_data):
+    """문서 파싱 응답에서 usage 정보 추출(있을 때만)"""
+    if not isinstance(response_data, dict):
+        return {"tokens": None, "cost": None}
+
+    token_value = _extract_numbers_from_json(response_data, ["total_tokens", "tokens", "token"])
+    cost_value = _extract_numbers_from_json(response_data, ["total_cost", "cost", "amount", "usd", "krw", "price"])
+
+    return {
+        "tokens": int(token_value) if token_value is not None else None,
+        "cost": float(cost_value) if cost_value is not None else None,
+    }
+
+
+if "session_tokens" not in st.session_state:
+    st.session_state.session_tokens = 0
+if "session_cost" not in st.session_state:
+    st.session_state.session_cost = 0.0
+
+# 상단 사용량 보드
+billing = get_monthly_usage_from_upstage(API_KEY)
+
+top_col1, top_col2, top_col3 = st.columns(3)
+
+with top_col1:
+    st.metric("이번 달 누적 토큰", f"{st.session_state.session_tokens:,} (세션)")
+
+with top_col2:
+    st.metric("이번 달 누적 비용", f"${st.session_state.session_cost:,.4f} (세션)")
+
+with top_col3:
+    if billing.get("ok"):
+        api_tokens = billing.get("total_tokens")
+        api_cost = billing.get("total_cost")
+        if api_tokens is not None or api_cost is not None:
+            st.metric(
+                "Upstage 월간 API 집계",
+                f"토큰 {api_tokens:,}" if api_tokens is not None else "토큰 N/A",
+                delta=f"비용 ${api_cost:,.4f}" if api_cost is not None else "비용 N/A",
+            )
+        else:
+            st.metric("Upstage 월간 API 집계", "응답 수신(스키마 확인 필요)")
+    else:
+        st.metric("Upstage 월간 API 집계", "조회 실패")
+
+with st.expander("사용량 집계 정보"):
+    st.write(
+        "- 세션: 이 앱에서 이번 실행 중 누적된 usage\n"
+        "- Upstage 월간 API 집계: 지원 엔드포인트가 있을 때만 표시"
+    )
+    if billing.get("ok"):
+        st.caption(f"조회 기간: {billing.get('start_date')} ~ {billing.get('end_date')}")
+        st.caption(f"조회 소스: {billing.get('source')}")
+        if billing.get("total_tokens") is None and billing.get("total_cost") is None:
+            st.info("응답은 받았지만 토큰/비용 필드 이름이 달라 자동 집계하지 못했습니다.")
+    else:
+        st.info(
+            "현재 공개/허용된 사용량 API를 찾지 못했습니다. "
+            "환경변수 `UPSTAGE_USAGE_API_URL`에 실제 엔드포인트를 넣으면 자동으로 조회를 시도합니다."
+        )
 
 def process_pdf(pdf_file):
     """PDF 파일을 처리하여 HTML로 변환"""
@@ -228,6 +389,13 @@ if uploaded_file is not None:
         try:
             # PDF 처리
             response_data = process_pdf(uploaded_file)
+
+            # usage 누적(응답에 usage 필드가 있을 때만 반영)
+            usage = extract_usage_from_pdf_response(response_data)
+            if usage["tokens"] is not None:
+                st.session_state.session_tokens += usage["tokens"]
+            if usage["cost"] is not None:
+                st.session_state.session_cost += usage["cost"]
             
             # HTML 수집 및 구조 수정
             html_parts = []
