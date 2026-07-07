@@ -1,0 +1,50 @@
+name: Telegram Bot
+
+on:
+  schedule:
+    # 5분마다 트리거하되, 각 실행이 약 20분간 대기(long polling)하므로
+    # 실행이 서로 이어지며 봇이 거의 상시로 메시지를 받는다
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore bot state
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: telegram-bot-state-${{ github.run_id }}
+          restore-keys: |
+            telegram-bot-state-
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run bot poller
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+          # 선택: 특정 chat_id만 허용하려면 시크릿에 쉼표 구분으로 등록 (비워두면 모두 허용)
+          ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
+          BOT_RUN_SECONDS: "1200"
+        run: python bot_poll.py
+
+      - name: Save bot state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: telegram-bot-state-${{ github.run_id }}
