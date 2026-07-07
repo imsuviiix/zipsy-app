@@ -1,0 +1,46 @@
+name: Telegram Bot
+
+on:
+  schedule:
+    # 5분마다 실행 (GitHub 사정에 따라 몇 분 지연될 수 있음)
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: telegram-bot
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore bot state
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: telegram-bot-state-${{ github.run_id }}
+          restore-keys: |
+            telegram-bot-state-
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run bot poller
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+        run: python bot_poll.py
+
+      - name: Save bot state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: telegram-bot-state-${{ github.run_id }}
