@@ -7,6 +7,8 @@
 필요한 환경변수:
   TELEGRAM_BOT_TOKEN - BotFather에서 발급받은 봇 토큰
   UPSTAGE_API_KEY    - Upstage Document Parse API 키
+선택 환경변수:
+  ALLOWED_CHAT_IDS   - 허용할 chat_id 목록(쉼표 구분). 비워두면 모두 허용
 """
 import io
 import logging
@@ -32,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
+ALLOWED_CHAT_IDS = {s.strip() for s in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if s.strip()}
 
 # 텔레그램 메시지 최대 길이는 4096자 — 여유를 두고 분할
 MAX_MESSAGE_LENGTH = 4000
@@ -90,11 +93,26 @@ def build_section(name, entries):
     return header + "\n\n" + "\n".join(entries)
 
 
+async def check_allowed(update):
+    """ALLOWED_CHAT_IDS가 설정된 경우 허용된 채팅인지 확인"""
+    chat_id = update.message.chat_id
+    if ALLOWED_CHAT_IDS and str(chat_id) not in ALLOWED_CHAT_IDS:
+        await update.message.reply_text(
+            f"이 봇을 사용할 권한이 없습니다. (당신의 chat_id: {chat_id})"
+        )
+        return False
+    return True
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_allowed(update):
+        return
     await update.message.reply_text(HELP_TEXT)
 
 
 async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_allowed(update):
+        return
     document = update.message.document
     if not (
         (document.mime_type and "pdf" in document.mime_type.lower())
@@ -156,6 +174,8 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await check_allowed(update):
+        return
     keyword = update.message.text.strip()
 
     results = context.chat_data.get("results")

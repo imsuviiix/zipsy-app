@@ -13,6 +13,7 @@
 선택 환경변수:
   BOT_RUN_SECONDS    - 한 번 실행 시 폴링을 유지할 시간(초), 기본 270
   BOT_STATE_FILE     - 상태 파일 경로, 기본 state/bot_state.json
+  ALLOWED_CHAT_IDS   - 허용할 chat_id 목록(쉼표 구분). 비워두면 모두 허용
 """
 import io
 import json
@@ -34,6 +35,7 @@ FILE_API = f"https://api.telegram.org/file/bot{TOKEN}"
 
 STATE_FILE = os.getenv("BOT_STATE_FILE", "state/bot_state.json")
 RUN_SECONDS = int(os.getenv("BOT_RUN_SECONDS", "270"))
+ALLOWED_CHAT_IDS = {s.strip() for s in os.getenv("ALLOWED_CHAT_IDS", "").split(",") if s.strip()}
 
 MAX_MESSAGE_LENGTH = 4000
 
@@ -180,6 +182,11 @@ def handle_update(state, update):
     if not message:
         return
     chat_id = message["chat"]["id"]
+
+    if ALLOWED_CHAT_IDS and str(chat_id) not in ALLOWED_CHAT_IDS:
+        logger.info("허용되지 않은 chat_id 무시: %s", chat_id)
+        send_message(chat_id, f"이 봇을 사용할 권한이 없습니다. (당신의 chat_id: {chat_id})")
+        return
 
     try:
         if "document" in message:

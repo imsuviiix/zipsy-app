@@ -2,7 +2,8 @@ name: Telegram Bot
 
 on:
   schedule:
-    # 5분마다 실행 (GitHub 사정에 따라 몇 분 지연될 수 있음)
+    # 5분마다 트리거하되, 각 실행이 약 20분간 대기(long polling)하므로
+    # 실행이 서로 이어지며 봇이 거의 상시로 메시지를 받는다
     - cron: "*/5 * * * *"
   workflow_dispatch:
 
@@ -13,7 +14,7 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +37,9 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+          # 선택: 특정 chat_id만 허용하려면 시크릿에 쉼표 구분으로 등록 (비워두면 모두 허용)
+          ALLOWED_CHAT_IDS: ${{ secrets.ALLOWED_CHAT_IDS }}
+          BOT_RUN_SECONDS: "1200"
         run: python bot_poll.py
 
       - name: Save bot state
