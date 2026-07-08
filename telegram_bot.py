@@ -10,9 +10,11 @@
 선택 환경변수:
   ALLOWED_CHAT_IDS   - 허용할 chat_id 목록(쉼표 구분). 비워두면 모두 허용
 """
+import asyncio
 import io
 import logging
 import os
+import time
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -194,14 +196,33 @@ def main():
     if not UPSTAGE_API_KEY:
         raise SystemExit("환경변수 UPSTAGE_API_KEY가 설정되지 않았습니다.")
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    # 일시적 네트워크 오류(TimedOut 등)로 죽지 않도록 무한 재시작 루프
+    while True:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
-    app.add_handler(CommandHandler(["start", "help"], start))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+        app = (
+            Application.builder()
+            .token(TELEGRAM_BOT_TOKEN)
+            .connect_timeout(30)
+            .read_timeout(30)
+            .write_timeout(30)
+            .pool_timeout(30)
+            .get_updates_connect_timeout(30)
+            .get_updates_read_timeout(60)
+            .build()
+        )
 
-    logger.info("텔레그램 봇을 시작합니다 (polling)...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.add_handler(CommandHandler(["start", "help"], start))
+        app.add_handler(MessageHandler(filters.Document.ALL, handle_pdf))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+        try:
+            logger.info("텔레그램 봇을 시작합니다 (polling)...")
+            app.run_polling(allowed_updates=Update.ALL_TYPES, bootstrap_retries=-1)
+            break  # 정상 종료 (Ctrl+C 등)
+        except Exception:
+            logger.exception("봇이 오류로 중단되었습니다. 10초 후 재시작합니다.")
+            time.sleep(10)
 
 
 if __name__ == "__main__":
