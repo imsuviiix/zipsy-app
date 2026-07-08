@@ -1,0 +1,22 @@
+name: Keep HF Space Awake
+
+# Hugging Face Space는 48시간 동안 접속이 없으면 잠들기 때문에
+# 1시간마다 핑을 보내 계속 깨어 있게 한다.
+# 레포 변수(Settings → Secrets and variables → Actions → Variables)에
+# SPACE_URL 이 설정된 경우에만 동작한다.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: vars.SPACE_URL != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Space
+        run: |
+          curl -sSf --max-time 30 "${{ vars.SPACE_URL }}" > /dev/null
+          echo "Space가 깨어 있습니다."

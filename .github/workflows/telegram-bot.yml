@@ -13,6 +13,9 @@ concurrency:
 
 jobs:
   poll:
+    # Hugging Face Space에서 봇을 상시 실행 중이면(레포 변수 SPACE_URL 설정)
+    # 폴링이 서로 충돌하므로 이 워크플로는 자동으로 건너뛴다
+    if: vars.SPACE_URL == ''
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
