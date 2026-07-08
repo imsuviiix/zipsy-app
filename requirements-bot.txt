@@ -1,0 +1,4 @@
+# 텔레그램 봇 실행에만 필요한 최소 의존성 (Render 등 배포 속도 향상용)
+python-telegram-bot>=21.0
+requests
+beautifulsoup4
