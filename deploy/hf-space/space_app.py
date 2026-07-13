@@ -19,6 +19,12 @@ def _serve_health():
             self.end_headers()
             self.wfile.write("📋 집회시위 정보 추출 봇이 실행 중입니다.".encode("utf-8"))
 
+        def do_HEAD(self):
+            # UptimeRobot 등 모니터링 서비스는 HEAD 요청을 보낸다
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+
         def log_message(self, *args):
             pass
 
